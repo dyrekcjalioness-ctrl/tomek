@@ -1,0 +1,270 @@
+
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <title>HURTOWNIA WARZYW I OWOCÓW</title>
+    <style>
+        body { font-family:sans-serif; background:#0f2027; color:white; padding:20px; }
+        .box { background:#1c2d36; padding:20px; border-radius:10px; margin-bottom:15px; }
+        .summary { font-size:18px; font-weight:bold; margin-bottom:20px; }
+        .val { color:#00e676; }
+        .search-box { position: absolute; top: 20px; right: 20px; background: #263238; padding: 15px; border-radius: 10px; width: 250px; }
+        .input-group { margin-bottom: 10px; }
+        .input-group label { display: block; font-size: 13px; margin-bottom: 4px; color: #aaa; font-weight: bold; }
+        input, select { padding:10px; border-radius:5px; border:none; background:#ffffff; color:#000; width: 100%; max-width: 400px; }
+        .row { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 15px; }
+        .field-item { display: flex; flex-direction: column; }
+        .field-item label { font-size: 12px; color: #aaa; margin-bottom: 5px; }
+        .field-item input, .field-item select { width: 120px; padding: 10px; border-radius: 5px; border: none; }
+        button { padding:10px 20px; cursor:pointer; background:#00c853; border:none; border-radius:5px; color:white; font-weight:bold; margin-top: 10px; }
+        .firm-card { background: #37474f; padding: 15px; margin: 10px 0; border-radius: 8px; border-left: 5px solid #00c853; cursor:pointer; display: flex; justify-content: space-between; align-items: center; }
+        table { width:100%; border-collapse:collapse; margin-top:10px; background:#1c2d36; }
+        th, td { border:1px solid #444; padding:10px; text-align:center; }
+        .main-container { display: flex; gap: 20px; }
+        .side { flex: 1; }
+    </style>
+</head>
+<body>
+<div style="max-width:1200px;margin:auto;">
+    <h2>🥦 HURTOWNIA WARZYW I OWOCÓW</h2>
+    <div class="search-box">
+        <label>Szybkie szukanie po NIP</label>
+        <input id="searchNipInput" placeholder="Wpisz NIP">
+        <button onclick="fillByNip()">🔍 Szukaj</button>
+    </div>
+                
+    <div id="activePanel" class="box">
+        <div class="summary">Koszty całkowite: <span id="tCost" class="val">0.00 zł</span></div>
+        
+        <div class="main-container">
+            <div class="side">
+                <h3>🛒 Dane klienta</h3>
+                <div class="input-group"><label>Nazwa klienta</label><input id="pFirm" placeholder="Nazwa"></div>
+                <div class="input-group"><label>Adres klienta</label><input id="pAddr" placeholder="Adres"></div>
+                <div class="input-group"><label>NIP klienta</label><input id="pNip" style="width:200px;" placeholder="NIP"></div>
+            </div>
+            <div class="side">
+                <h3>🏢 Nasza hurtownia</h3>
+                <div class="input-group"><label>Nazwa hurtowni</label><input id="myFirm" placeholder="Nazwa hurtowni"></div>
+                <div class="input-group"><label>Adres hurtowni</label><input id="myAddr" placeholder="Adres"></div>
+                <div class="input-group"><label>NIP hurtowni</label><input id="myNip" style="width:200px;" placeholder="NIP"></div>
+            </div>
+        </div>
+
+        <hr style="border:0; border-top:1px solid #444; margin:20px 0;">
+        <div class="row">
+            <div class="field-item"><label>Towar</label><input id="pName" placeholder="Nazwa"></div>
+            <div class="field-item"><label>Ilość</label><input id="pQty" type="number" placeholder="0" oninput="calcPreview()"></div>
+            <div class="field-item"><label>Jednostka</label><select id="pUnit"><option value="szt">szt</option><option value="kg">kg</option></select></div>
+            <div class="field-item"><label>Cena za jedn.</label><input id="pBuy" type="number" placeholder="0.00" oninput="calcPreview()"></div>
+        </div>
+        <div id="previewRow">Koszt: 0.00 zł</div>
+        <button onclick="addProduct()">Dodaj towar</button>
+        <button onclick="archiveData()" style="background:#ff9800">📦 Prześlij do archiwum</button>
+        <button onclick="toggleArchive()" style="background:#2979ff">📂 Otwórz archiwum</button>
+        <div id="activeFirmsContainer" style="margin-top:20px;"></div>
+    </div>
+
+    <div id="archivePanel" class="box" style="display:none;">
+        <h3>📁 Archiwum zamówień</h3>
+        <button onclick="toggleArchive()" style="background:#f44336">❌ Wyjdź z archiwum</button>
+        <hr>
+        <input type="month" id="monthPicker">
+        <button onclick="loadFirms()">Pokaż zamówienia z miesiąca</button>
+        <div id="firmList" style="margin-top:20px;"></div>
+        <div id="firmDetails" style="margin-top:20px;"></div>
+    </div>
+</div>
+
+<script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+    import { getDatabase, ref, set, onValue, get } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
+    
+    const db = getDatabase(initializeApp({databaseURL:"https://a18v4-643dc-default-rtdb.firebaseio.com"}));
+    const DB_ROOT = 'my_new_business_v2/'; 
+    const businessRef = ref(db, DB_ROOT + 'business_data');
+    const historyRef = ref(db, DB_ROOT + 'history');
+
+    let inventory = [];
+    let currentArchive = {};
+
+    window.clearInputs = () => {
+        document.getElementById('pName').value = "";
+        document.getElementById('pQty').value = "";
+        document.getElementById('pBuy').value = "";
+        document.getElementById('pFirm').value = "";
+        document.getElementById('pAddr').value = "";
+        document.getElementById('pNip').value = "";
+        document.getElementById('myFirm').value = "";
+        document.getElementById('myAddr').value = "";
+        document.getElementById('myNip').value = "";
+        document.getElementById('previewRow').innerText = "Koszt: 0.00 zł";
+    };
+
+    window.fillFormFields = (firmName) => {
+        const found = inventory.find(i => i.firm === firmName);
+        if (found) {
+            document.getElementById('pFirm').value = found.firm;
+            document.getElementById('pAddr').value = found.addr;
+            document.getElementById('pNip').value = found.nip;
+            document.getElementById('myFirm').value = found.myFirm || "";
+            document.getElementById('myAddr').value = found.myAddr || "";
+            document.getElementById('myNip').value = found.myNip || "";
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+    };
+
+    window.addProduct = () => {
+        const today = new Date().toISOString().split('T')[0];
+        inventory.push({
+            name: document.getElementById('pName').value,
+            firm: document.getElementById('pFirm').value,
+            nip: document.getElementById('pNip').value,
+            addr: document.getElementById('pAddr').value,
+            myFirm: document.getElementById('myFirm').value,
+            myAddr: document.getElementById('myAddr').value,
+            myNip: document.getElementById('myNip').value,
+            qty: +document.getElementById('pQty').value,
+            unit: document.getElementById('pUnit').value,
+            buy: +document.getElementById('pBuy').value,
+            date: today
+        });
+        set(businessRef, inventory);
+        window.clearInputs();
+    };
+
+    window.toggleArchive = () => {
+        const aP = document.getElementById('archivePanel');
+        const acP = document.getElementById('activePanel');
+        aP.style.display = aP.style.display === 'none' ? 'block' : 'none';
+        acP.style.display = acP.style.display === 'none' ? 'block' : 'none';
+    };
+
+    window.calcPreview = () => {
+        let q = parseFloat(document.getElementById('pQty').value) || 0;
+        let b = parseFloat(document.getElementById('pBuy').value) || 0;
+        document.getElementById('previewRow').innerText = "Koszt: " + (q * b).toFixed(2) + " zł";
+    };
+
+    window.renderActive = () => {
+        window.clearInputs();
+        let activeFirms = {};
+        let totalAll = 0;
+        inventory.forEach(i => {
+            if(!activeFirms[i.firm]) activeFirms[i.firm] = { addr: i.addr, nip: i.nip, myFirm: i.myFirm, items: [] };
+            activeFirms[i.firm].items.push(i);
+            totalAll += (i.qty * i.buy);
+        });
+        document.getElementById('tCost').innerText = totalAll.toFixed(2) + " zł";
+        let fHtml = `<h4>Zamówienia w przygotowaniu:</h4>`;
+        Object.keys(activeFirms).forEach(f => {
+            fHtml += `<div class="firm-card" onclick="fillFormFields('${f.replace(/'/g, "\\'")}'); showFirmDetails('${f.replace(/'/g, "\\'")}')"><span>${f}</span></div>`;
+        });
+        document.getElementById('activeFirmsContainer').innerHTML = fHtml;
+    };
+
+    window.showFirmDetails = (firmName) => {
+        let items = inventory.filter(i => i.firm === firmName);
+        let info = items[0];
+        let totalFirm = items.reduce((sum, i) => sum + (i.qty * i.buy), 0);
+        let tableHtml = `<table><tr><th>Data</th><th>Towar</th><th>Ilość</th><th>Cena</th><th>Koszt</th></tr>`;
+        items.forEach(i => { 
+            tableHtml += `<tr><td>${i.date}</td><td>${i.name}</td><td>${i.qty} ${i.unit}</td><td>${i.buy.toFixed(2)} zł</td><td>${(i.qty * i.buy).toFixed(2)} zł</td></tr>`; 
+        });
+        tableHtml += `</table>`;
+        let content = `<h4>Klient: ${info.firm}</h4><p>NIP Klienta: ${info.nip}</p><p>Hurtownia: ${info.myFirm || 'Brak'} | NIP: ${info.myNip || 'Brak'}</p>${tableHtml}<p><strong>Suma: ${totalFirm.toFixed(2)} zł</strong></p>`;
+        document.getElementById('activeFirmsContainer').innerHTML = content +
+            `<br><button onclick="window.printFirm('${content.replace(/'/g, "\\'")}')">🖨️ Drukuj</button>
+            <button onclick="renderActive()">⬅️ Powrót</button>
+            <button onclick="deleteFullFirm('${firmName.replace(/'/g, "\\'")}')" style="background:#f44336">🗑️ Usuń zamówienie</button>`;
+    };
+
+    window.printFirm = (htmlContent) => {
+        let win = window.open('', '_blank', 'width=800,height=600');
+        win.document.write('<html><head><title>Drukuj</title><style>body{font-family:sans-serif;} table{width:100%; border-collapse:collapse;} th, td{border:1px solid #000; padding:10px; text-align:center;}</style></head><body>' + htmlContent + '</body></html>');
+        win.document.close();
+        win.print();
+    };
+
+    window.deleteFullFirm = (firmName) => {
+        inventory = inventory.filter(i => i.firm !== firmName);
+        set(businessRef, inventory);
+        window.clearInputs();
+    };
+
+    window.archiveData = async () => {
+        const date = new Date().toISOString().split('T')[0];
+        const dayHistoryRef = ref(db, DB_ROOT + 'history/' + date);
+        const snap = await get(dayHistoryRef);
+        let existing = snap.val() || [];
+        await set(dayHistoryRef, [...existing, ...inventory]);
+        await set(businessRef, []);
+        alert("Zarchiwizowano!");
+    };
+
+    window.loadFirms = async () => {
+        const month = document.getElementById('monthPicker').value;
+        const snap = await get(historyRef);
+        const allHistory = snap.val() || {};
+        currentArchive = {};
+        Object.keys(allHistory).forEach(date => {
+            if(date.startsWith(month)) {
+                allHistory[date].forEach(item => {
+                    if(!currentArchive[item.firm]) currentArchive[item.firm] = { date: date, addr: item.addr, nip: item.nip, myFirm: item.myFirm, items: [] };
+                    currentArchive[item.firm].items.push(item);
+                });
+            }
+        });
+        let html = `<h4>Lista zamówień w archiwum:</h4>`;
+        Object.keys(currentArchive).forEach(f => {
+            html += `<div class="firm-card" onclick="showArchiveDetails('${f.replace(/'/g, "\\'")}')"><span>${f}</span></div>`;
+        });
+        document.getElementById('firmList').innerHTML = html;
+    };
+
+    window.showArchiveDetails = (name) => {
+        const data = currentArchive[name];
+        let totalFirm = data.items.reduce((sum, i) => sum + (i.qty * i.buy), 0);
+        let tableHtml = `<table><tr><th>Data</th><th>Towar</th><th>Ilość</th><th>Cena</th><th>Koszt</th></tr>`;
+        data.items.forEach(i => { 
+            tableHtml += `<tr><td>${i.date}</td><td>${i.name}</td><td>${i.qty} ${i.unit}</td><td>${i.buy.toFixed(2)} zł</td><td>${(i.qty * i.buy).toFixed(2)} zł</td></tr>`; 
+        });
+        tableHtml += `</table>`;
+        let content = `<h4>Firma: ${name}</h4><p>NIP: ${data.nip}</p>${tableHtml}<p><strong>Suma: ${totalFirm.toFixed(2)} zł</strong></p>`;
+        document.getElementById('firmDetails').innerHTML = content +
+            `<br><button onclick="window.printFirm('${content.replace(/'/g, "\\'")}')">🖨️ Drukuj</button>
+             <button onclick="deleteFromArchive('${name.replace(/'/g, "\\'")}')" style="background:#f44336">🗑️ Usuń z archiwum</button>
+             <button onclick="document.getElementById('firmDetails').innerHTML=''">⬅️ Powrót</button>`;
+    };
+
+    window.deleteFromArchive = async (name) => {
+        const snap = await get(historyRef);
+        const allHistory = snap.val() || {};
+        Object.keys(allHistory).forEach(date => {
+            allHistory[date] = allHistory[date].filter(i => i.firm !== name);
+            if (allHistory[date].length === 0) delete allHistory[date];
+        });
+        await set(historyRef, allHistory);
+        document.getElementById('firmDetails').innerHTML = '';
+        window.loadFirms();
+    };
+
+    window.fillByNip = async () => {
+        const nip = document.getElementById('searchNipInput').value;
+        const snap = await get(historyRef);
+        let found = Object.values(snap.val() || {}).flat().find(i => i.nip === nip);
+        if(found) {
+            document.getElementById('pFirm').value = found.firm;
+            document.getElementById('pAddr').value = found.addr;
+            document.getElementById('pNip').value = found.nip;
+        }
+    };
+
+    onValue(businessRef, snap => {
+        inventory = (snap.val() || []).sort((a, b) => b.date.localeCompare(a.date));
+        renderActive();
+    });
+</script>
+</body>
+</html>
